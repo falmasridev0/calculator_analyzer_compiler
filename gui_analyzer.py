@@ -51,6 +51,7 @@ class Parser:
         self.tokens = tokens
         self.pos = 0
         self.current_token = tokens[0]
+        self.symbol_table = set()
 
     def eat(self, token_type):
         if self.current_token.type == token_type:
@@ -68,89 +69,69 @@ class Parser:
         return node
 
     def stmts(self):
-        node = self.stmt_or_expr()
-        if self.current_token.type == STOP:
-            self.eat(STOP)
-            node = ('STMTS', node, self.stmts())
-        return node
+        stmts = []
+        while self.current_token.type != EOF:
+            stmts.append(self.stmt())
+        return stmts
 
-    def stmt_or_expr(self):
+    def stmt(self):
         if self.current_token.type == IDENTIFIER:
-            if self.tokens[self.pos + 1].type == OPERATOR and self.tokens[self.pos + 1].value == '=':
-                return self.stmt()
-            else:
-                return self.expr()
+            node = self.expr()
+            self.eat(STOP)
+            return node
         else:
             return self.expr()
 
-    def stmt(self):
-        id_token = self.current_token
-        self.eat(IDENTIFIER)
-        self.eat(OPERATOR)  # for '='
-        expr_node = self.expr()
-        return ('STMT', id_token, expr_node)
-
     def expr(self):
-        term_node = self.term()
-        return self.expr_prime(term_node)
-
-    def expr_prime(self, left):
-        if self.current_token.type == OPERATOR and self.current_token.value in ('+', '-'):
-            op = self.current_token
+        if self.current_token.type == OPERATOR:
+            left_operand = self.current_token
             self.eat(OPERATOR)
-            term_node = self.term()
-            node = ('EXPR', left, op, term_node)
-            return self.expr_prime(node)
-        return left
-
-    def term(self):
-        factor_node = self.factor()
-        return self.term_prime(factor_node)
-
-    def term_prime(self, left):
-        if self.current_token.type == OPERATOR and self.current_token.value in ('*', '/'):
-            op = self.current_token
-            self.eat(OPERATOR)
-            factor_node = self.factor()
-            node = ('TERM', left, op, factor_node)
-            return self.term_prime(node)
-        elif self.current_token.type == OPERATOR and self.current_token.value == '^':
-            op = self.current_token
-            self.eat(OPERATOR)
-            factor_node = self.factor()
-            node = ('TERM', left, op, factor_node)
-            return self.term_prime(node)
-        return left
-
-    def factor(self):
-        if self.current_token.type == OPERATOR and self.current_token.value == '(':
-            self.eat(OPERATOR)
-            expr_node = self.expr()
-            self.eat(OPERATOR)
-            return expr_node
+            right_operand = self.expr()
+            return (left_operand, right_operand)
         elif self.current_token.type == IDENTIFIER:
             id_token = self.current_token
             self.eat(IDENTIFIER)
+            if self.current_token.type == OPERATOR:
+                op_token = self.current_token
+                self.eat(OPERATOR)
+                if self.current_token.type in {IDENTIFIER, NUMBER}:
+                    right_operand = self.expr()
+                    if op_token.value == '=':
+                        self.symbol_table.add(id_token.value)
+                    else:
+                        if id_token.value not in self.symbol_table:
+                            raise SyntaxError(f'Undefined variable {id_token.value}')
+                    return (id_token, op_token, right_operand)
+                else:
+                    raise SyntaxError('Incomplete expression after operator')
+            if id_token.value not in self.symbol_table:
+                raise SyntaxError(f'Undefined variable {id_token.value}')
             return id_token
         elif self.current_token.type == NUMBER:
             num_token = self.current_token
             self.eat(NUMBER)
             return num_token
+        else:
+            raise SyntaxError('Unexpected token')
 
 # GUI Code
 def tokenize_code():
     code = input_text.get("1.0", tk.END).strip()
-    tokens = tokenize(code)
-    output_text.delete("1.0", tk.END)
-    output_text.insert(tk.END, "Tokens:\n")
-    for token in tokens:
-        output_text.insert(tk.END, str(token) + "\n")
+    try:
+        tokens = tokenize(code)
+        output_text.delete("1.0", tk.END)
+        output_text.insert(tk.END, "Tokens:\n")
+        for token in tokens:
+            output_text.insert(tk.END, str(token) + "\n")
+    except SyntaxError as e:
+        output_text.delete("1.0", tk.END)
+        output_text.insert(tk.END, f"Syntax Error: {e}\n")
 
 def parse_code():
     code = input_text.get("1.0", tk.END).strip()
-    tokens = tokenize(code)
-    parser = Parser(tokens)
     try:
+        tokens = tokenize(code)
+        parser = Parser(tokens)
         parse_tree = parser.parse()
         output_text.delete("1.0", tk.END)
         output_text.insert(tk.END, "Parse Tree:\n")
